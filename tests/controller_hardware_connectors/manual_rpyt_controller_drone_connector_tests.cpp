@@ -12,31 +12,15 @@ using namespace quad_simulator;
 
 /// \brief Test ManualRPYTController
 TEST(ManualRPYTControllerTests, TestMapInputOutOfBounds) {
+  ManualRPYTControllerConfig config;
   ManualRPYTController manual_rpyt_controller;
   JoystickYaw input(15000, -15000, 0, 0, 0);
   RollPitchYawThrust out_controls;
   bool result = manual_rpyt_controller.run(input, out_controls);
-  ASSERT_NEAR(out_controls.r, M_PI / 6, 1e-8);
-  ASSERT_NEAR(out_controls.p, -M_PI / 6, 1e-8);
+  ASSERT_NEAR(out_controls.r, config.max_roll(), 1e-8);
+  ASSERT_NEAR(out_controls.p, -config.max_pitch(), 1e-8);
   ASSERT_TRUE(result);
 }
-
-TEST(ManualRPYTControllerTests, TestYawGreaterThanPi) {
-  ManualRPYTController manual_rpyt_controller;
-  JoystickYaw input(0, 0, 0, 0, 1.5 * M_PI);
-  RollPitchYawThrust out_controls;
-  manual_rpyt_controller.run(input, out_controls);
-  ASSERT_NEAR(out_controls.y, -0.5 * M_PI, 1e-8);
-}
-
-TEST(ManualRPYTControllerTests, TestYawLessThanNegativePi) {
-  ManualRPYTController manual_rpyt_controller;
-  JoystickYaw input(0, 0, 0, 0, -1.5 * M_PI);
-  RollPitchYawThrust out_controls;
-  manual_rpyt_controller.run(input, out_controls);
-  ASSERT_NEAR(out_controls.y, 0.5 * M_PI, 1e-8);
-}
-///
 
 /// \brief Test ManualRPYTControllerDroneConnectorTests
 TEST(ManualRPYTControllerDroneConnectorTests, Constructor) {
@@ -73,11 +57,13 @@ TEST(ManualRPYTControllerDroneConnectorTests, Run) {
   }
   ASSERT_EQ(manual_rpyt_controller_connector.getStatus(),
             ControllerStatus::Completed);
+
+  ManualRPYTControllerConfig config;
   drone_hardware.getquaddata(sensor_data);
-  ASSERT_NEAR(sensor_data.rpydata.x, 0.00523599, 1e-4);
-  ASSERT_NEAR(sensor_data.rpydata.y, 0.00261799, 1e-4);
+  ASSERT_NEAR(sensor_data.rpydata.x, 0.01 * config.max_roll(), 1e-4);
+  ASSERT_NEAR(sensor_data.rpydata.y, 0.005 * config.max_pitch(), 1e-4);
   // Verify Omegaz
-  ASSERT_NEAR(sensor_data.omega.z, -0.00314, 1e-3);
+  ASSERT_NEAR(sensor_data.omega.z, -0.0314, 1e-3);
 }
 
 TEST(ManualRPYTControllerDroneConnectorTests, RunConstantAcceleration) {

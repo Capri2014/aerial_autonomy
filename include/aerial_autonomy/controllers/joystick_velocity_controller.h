@@ -53,12 +53,22 @@ public:
                                                 << "Yaw" << DataStream::endl;
   }
   /**
-  *
   * @brief Update RPYT controller config
-  *
   */
   void updateRPYTConfig(RPYTBasedVelocityControllerConfig &config) {
     rpyt_velocity_controller_.updateConfig(config);
+  }
+  /**
+  * @brief get RPYT controller config
+  */
+  RPYTBasedVelocityControllerConfig getRPYTConfig() {
+    return rpyt_velocity_controller_.getConfig();
+  }
+  /**
+  * @brief set last commanded yaw
+  */
+  void setLastCommandedYaw(double last_commanded_yaw) {
+    last_yaw_ = last_commanded_yaw;
   }
 
 protected:
@@ -93,4 +103,8 @@ private:
   * @brief Internal controller to get rpyt from desired velocity
   */
   RPYTBasedVelocityController rpyt_velocity_controller_;
+  /**
+  * @brief Last commanded yaw
+  */
+  double last_yaw_ = 0;
 };

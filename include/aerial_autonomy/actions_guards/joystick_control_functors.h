@@ -17,6 +17,8 @@ struct JoystickControlTransitionActionFunctor_
     : EventAgnosticActionFunctor<UAVSystem, LogicStateMachineT> {
   void run(UAVSystem &robot_system) {
     VLOG(1) << "entering joystick control mode";
+    parsernode::common::quaddata data = robot_system.getUAVData();
+    robot_system.setLastCommandedYaw(data.rpydata.z, false);
     robot_system.setGoal<JoystickVelocityControllerDroneConnector, EmptyGoal>(
         EmptyGoal());
   }
@@ -31,10 +33,10 @@ template <class LogicStateMachineT>
 struct JoystickControlTransitionGuardFunctor_
     : EventAgnosticGuardFunctor<UAVSystem, LogicStateMachineT> {
   bool guard(UAVSystem &robot_system) {
-    if (!bool(robot_system.getVelocitySensorStatus())) {
+    if (!bool(robot_system.getVelocityPoseSensorStatus())) {
       LOG(WARNING) << "Sensor Status INVALID";
     }
-    return bool(robot_system.getVelocitySensorStatus());
+    return bool(robot_system.getVelocityPoseSensorStatus());
   }
 };
 /**

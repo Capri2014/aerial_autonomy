@@ -1,11 +1,10 @@
 syntax = "proto2";
 
-import "rpyt_based_velocity_controller_config.proto";
 /**
 *Uses values to map joystick values to
-* velocity goals
+* rpyt commands
 */
-message JoystickVelocityControllerConfig {
+message ManualRPYTControllerConfig {
   /**
   * @brief max value for channel 1
   */
@@ -23,15 +22,23 @@ message JoystickVelocityControllerConfig {
   */
   optional double max_channel4 = 4 [ default = 10000 ];
   /**
-  * @brief max velocity in m/s
+  * @brief max roll in radians
   */
-  optional double max_velocity = 5 [ default = 1.0 ];
+  optional double max_roll = 5 [ default = 0.5 ];
+    /**
+  * @brief max pitch in radians
+  */
+  optional double max_pitch = 6 [ default = 0.5 ];
+    /**
+  * @brief min thrust 
+  */
+  optional double min_thrust = 7 [ default = 10 ];
+  /**
+  * @brief max thrust 
+  */
+  optional double max_thrust = 8 [ default = 100 ];
   /**
   * @brief max yaw rate in rad/s
   */
-  optional double max_yaw_rate = 6 [ default = 3.14 ];
-  /**
-  * @brief rpyt velocity controller config
-  */
-  optional RPYTBasedVelocityControllerConfig rpyt_based_velocity_controller_config = 7;
+  optional double max_yaw_rate = 9 [ default = 3.14 ];
 }

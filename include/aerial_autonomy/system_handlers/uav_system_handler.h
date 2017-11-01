@@ -13,7 +13,7 @@
 #include "uav_system_handler_config.pb.h"
 #include <aerial_autonomy/sensors/base_sensor.h>
 #include <aerial_autonomy/sensors/guidance.h>
-#include <aerial_autonomy/sensors/velocity_sensor.h>
+#include <aerial_autonomy/sensors/velocity_pose_sensor.h>
 
 /**
  * @brief Owns all of the autonomous system components and is responsible for
@@ -35,17 +35,19 @@ public:
       : nh_uav_("~uav"), parser_loader_("parsernode", "parsernode::Parser"),
         uav_hardware_(
             parser_loader_.createUnmanagedInstance(config.uav_parser_type())),
-        velocity_sensor_(
+        velocity_pose_sensor_(
             config.sensor_type() == "ROS Sensor"
-                ? dynamic_cast<Sensor<VelocityYaw> *>(new VelocitySensor(
-                      *uav_hardware_, nh_uav_, config.velocity_sensor_config()))
+                ? dynamic_cast<Sensor<std::tuple<VelocityYaw, Position>> *>(
+                      new VelocityPoseSensor(*uav_hardware_, nh_uav_,
+                                             config.velocity_sensor_config()))
                 : (config.sensor_type() == "Guidance"
-                       ? dynamic_cast<Sensor<VelocityYaw> *>(
-                             new Guidance(*uav_hardware_))
-                       : dynamic_cast<Sensor<VelocityYaw> *>(
-                             new Sensor<VelocityYaw>()))),
+                       ? dynamic_cast<Sensor<std::tuple<VelocityYaw, Position>>
+                                          *>(new Guidance(*uav_hardware_))
+                       : dynamic_cast<
+                             Sensor<std::tuple<VelocityYaw, Position>> *>(
+                             new Sensor<std::tuple<VelocityYaw, Position>>()))),
         uav_system_(*uav_hardware_, config.uav_system_config(),
-                    velocity_sensor_,
+                    velocity_pose_sensor_,
                     config.uav_controller_timer_duration() / 1000.0),
         common_handler_(config.base_config(), uav_system_),
         uav_controller_timer_(
@@ -54,18 +56,20 @@ public:
             std::chrono::milliseconds(config.uav_controller_timer_duration())),
         use_dynamic_reconfigure_(config.use_dynamic_reconfigure()) {
     // Set default dynamic reconfigure gains from configurationg
-    callbacktype_ = boost::bind(&UAVSystemHandler::dynamicReconfigureCallback,
-                                this, _1, _2);
-    server_.setCallback(callbacktype_);
-    aerial_autonomy::GainsConfig default_config;
-    RPYTBasedVelocityControllerConfig start_config =
-        config.uav_system_config()
-            .joystick_velocity_controller_config()
-            .rpyt_based_velocity_controller_config();
-    default_config.kp = start_config.kp();
-    default_config.ki = start_config.ki();
-    default_config.kt = start_config.kt();
-    server_.updateConfig(default_config);
+    if (use_dynamic_reconfigure_) {
+      callbacktype_ = boost::bind(&UAVSystemHandler::dynamicReconfigureCallback,
+                                  this, _1, _2);
+      server_.setCallback(callbacktype_);
+      aerial_autonomy::GainsConfig default_config;
+      RPYTBasedVelocityControllerConfig start_config =
+          config.uav_system_config()
+              .joystick_velocity_controller_config()
+              .rpyt_based_velocity_controller_config();
+      default_config.kp = start_config.kp();
+      default_config.ki = start_config.ki();
+      default_config.kt = start_config.kt();
+      server_.updateConfig(default_config);
+    }
     // Initialize UAV plugin
     uav_hardware_->initialize(nh_uav_);
 
@@ -102,9 +106,9 @@ private:
   pluginlib::ClassLoader<parsernode::Parser>
       parser_loader_; ///< Used to load hardware plugin
   std::unique_ptr<parsernode::Parser> uav_hardware_; ///< Hardware instance
-  std::shared_ptr<Sensor<VelocityYaw>>
-      velocity_sensor_;  ///< External Velocity Sensor
-  UAVSystem uav_system_; ///< Contains controllers
+  std::shared_ptr<Sensor<std::tuple<VelocityYaw, Position>>>
+      velocity_pose_sensor_; ///< External Velocity Sensor
+  UAVSystem uav_system_;     ///< Contains controllers
   CommonSystemHandler<LogicStateMachineT, EventManagerT, UAVSystem>
       common_handler_;              ///< Common logic to create state machine
                                     ///< and associated connections.

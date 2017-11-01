@@ -1,8 +1,9 @@
 #pragma once
 #include "aerial_autonomy/sensors/base_sensor.h"
+#include "aerial_autonomy/types/position.h"
 #include "aerial_autonomy/types/position_yaw.h"
 #include "aerial_autonomy/types/velocity_yaw.h"
-#include "velocity_sensor_config.pb.h"
+#include "velocity_pose_sensor_config.pb.h"
 #include <aerial_autonomy/common/math.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <parsernode/parser.h>
@@ -11,7 +12,7 @@
 /**
 * @brief ros based pose sensor that returns velocity data
 */
-class VelocitySensor : public Sensor<VelocityYaw> {
+class VelocityPoseSensor : public Sensor<std::tuple<VelocityYaw, Position>> {
 public:
   /**
   *
@@ -24,11 +25,12 @@ public:
   *
   * @param Config for velocity sensor
   */
-  VelocitySensor(parsernode::Parser &drone_hardware, ros::NodeHandle nh,
-                 VelocitySensorConfig config)
+  VelocityPoseSensor(parsernode::Parser &drone_hardware, ros::NodeHandle nh,
+                     VelocityPoseSensorConfig config)
       : Sensor(SensorStatus::INVALID), config_(config),
         drone_hardware_(drone_hardware), nh_(nh) {
-    pose_sub_ = nh_.subscribe("pose", 1, &VelocitySensor::poseCallback, this);
+    pose_sub_ =
+        nh_.subscribe("pose", 1, &VelocityPoseSensor::poseCallback, this);
     sensor_tf_ = math::getTransformFromVector(config_.sensor_transform());
     parsernode::common::quaddata data;
     drone_hardware_.getquaddata(data);
@@ -70,7 +72,6 @@ private:
       if (sensor_status_ == SensorStatus::INVALID) {
         sensor_status_ = SensorStatus::VALID;
         last_pos_ = global_pos;
-        // Differentiate position to get
       } else {
         ros::Time current_msg_time = msg->header.stamp;
         double dt = (current_msg_time - last_msg_time_).toSec();
@@ -82,9 +83,11 @@ private:
         vel_sensor_data.y = (global_pos[1] - last_pos_[1]) / dt;
         vel_sensor_data.z = (global_pos[2] - last_pos_[2]) / dt;
 
+        Position pose_data(global_pos[0], global_pos[1], global_pos[2]);
+
         last_pos_ = global_pos;
         vel_sensor_data.yaw = tf::getYaw(global_q);
-        sensor_data_ = vel_sensor_data;
+        sensor_data_ = std::make_tuple(vel_sensor_data, pose_data);
       }
       last_msg_time_ = msg->header.stamp;
     } else {
@@ -96,7 +99,7 @@ private:
   /**
   * @ config for the position sensor
   */
-  VelocitySensorConfig config_;
+  VelocityPoseSensorConfig config_;
   /**
   * @brief Quad hardware to compare data
   * to check validity

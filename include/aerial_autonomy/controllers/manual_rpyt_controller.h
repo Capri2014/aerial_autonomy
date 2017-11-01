@@ -3,6 +3,7 @@
 #include "aerial_autonomy/types/empty_goal.h"
 #include "aerial_autonomy/types/joystick_yaw.h"
 #include "aerial_autonomy/types/roll_pitch_yaw_thrust.h"
+#include "manual_rpyt_controller_config.pb.h"
 
 /**
  * @brief A controller that passes joystick commands to a drone's RPYT
@@ -11,6 +12,29 @@
 class ManualRPYTController
     : public Controller<JoystickYaw, EmptyGoal, RollPitchYawThrust> {
 public:
+  /**
+  * @brief Default constructor
+  */
+  ManualRPYTController()
+      : config_(ManualRPYTControllerConfig()),
+        controller_timer_duration_(0.02) {}
+  /**
+  * @brief Explicit constructor
+  */
+  ManualRPYTController(ManualRPYTControllerConfig config,
+                       double controller_timer_duration)
+      : config_(config), controller_timer_duration_(controller_timer_duration) {
+  }
+  /**
+  * @brief get last commanded yaw
+  */
+  double getLastCommandedYaw() { return last_yaw_; }
+  /**
+  * @brief set last commanded yaw from sensor data
+  */
+  void setLastCommandedYaw(double last_commanded_yaw) {
+    last_yaw_ = last_commanded_yaw;
+  }
   /**
    * @brief Destructor
    */
@@ -37,16 +61,15 @@ protected:
 
 private:
   /**
-  * @brief Generic map function to map input range to output range
-  *
-  * @param input Input value to map
-  * @param input_min Min for input
-  * @param input_max Max for input
-  * @param output_min Min for output
-  * @param output_max Max for output
-  *
-  * @return Map the input based on input range to output in output range
+  * @brief Config for manual rpyt controller
   */
-  double map(double input, double input_min, double input_max,
-             double output_min, double output_max);
+  ManualRPYTControllerConfig config_;
+  /**
+  * @brief controller timestep
+  */
+  double controller_timer_duration_;
+  /**
+  * @brief Last commanded yaw
+  */
+  double last_yaw_ = 0;
 };

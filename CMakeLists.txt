@@ -34,7 +34,7 @@ find_package(Protobuf 3.1 REQUIRED)
 find_package(Glog REQUIRED)
 
 # Quad simulator parser dependencies
-find_package(GCOP REQUIRED systems)
+find_package(GCOP REQUIRED est systems utils)
 include_directories(${GCOP_INCLUDE_DIRS})
 set(QUAD_SIM_PARSER_LIBS ${QUAD_SIM_PARSER_LIBS} ${GCOP_LIBRARIES})
 
@@ -42,9 +42,12 @@ find_package(TinyXML REQUIRED)
 include_directories(${TINYXML_INCLUDE_DIR})
 set(QUAD_SIM_PARSER_LIBS ${QUAD_SIM_PARSER_LIBS} ${TINYXML_LIBRARIES})
 
+
 find_package(Eigen3 REQUIRED)
 include_directories(${EIGEN3_INCLUDE_DIR})
 
+find_package(Ceres 1.10 REQUIRED)
+include_directories(${CERES_INLCUDE_DIRS})
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
@@ -177,7 +180,8 @@ PROTOBUF_GENERATE_CPP(PROTO_SRC PROTO_HEADER
   proto/velocity_controller_config.proto
   proto/rpyt_based_velocity_controller_config.proto
   proto/joystick_velocity_controller_config.proto
-  proto/velocity_sensor_config.proto
+  proto/manual_rpyt_controller_config.proto
+  proto/velocity_pose_sensor_config.proto
   proto/position.proto
   proto/velocity.proto
   proto/data_stream_config.proto
@@ -231,7 +235,7 @@ add_library(aerial_autonomy
 )
 
 add_dependencies(aerial_autonomy proto)
-target_link_libraries(aerial_autonomy proto ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES} ${GLOG_LIBRARIES} ${Boost_LIBRARIES})
+target_link_libraries(aerial_autonomy proto ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES} ${GLOG_LIBRARIES} ${Boost_LIBRARIES} ${CERES_LIBRARY} ${CERES_LIBRARIES})
 
 
 ## Add cmake target dependencies of the library
@@ -252,10 +256,10 @@ add_dependencies(uav_joystick_control_node ${PROJECT_NAME}_gencfg)
 
 ## Specify libraries to link a library or executable target against
 
-target_link_libraries(uav_system_node aerial_autonomy)
-target_link_libraries(uav_vision_system_node aerial_autonomy)
-target_link_libraries(uav_arm_system_node aerial_autonomy)
-target_link_libraries(uav_joystick_control_node aerial_autonomy)
+target_link_libraries(uav_system_node ${GCOP_LIBRARIES} aerial_autonomy)
+target_link_libraries(uav_vision_system_node ${GCOP_LIBRARIES}  aerial_autonomy)
+target_link_libraries(uav_arm_system_node ${GCOP_LIBRARIES} aerial_autonomy)
+target_link_libraries(uav_joystick_control_node ${GCOP_LIBRARIES} aerial_autonomy)
 target_link_libraries(event_publish_node ${catkin_LIBRARIES})
 
 #############
@@ -365,7 +369,7 @@ if(TARGET ${PROJECT_NAME}-pick-place-state-machine-test)
   target_link_libraries(${PROJECT_NAME}-pick-place-state-machine-test aerial_autonomy ${QUAD_SIM_PARSER_LIBS})
 endif()
 if(TARGET ${PROJECT_NAME}-joystick-control-state-machine-test)
-  target_link_libraries(${PROJECT_NAME}-joystick-control-state-machine-test aerial_autonomy ${QUAD_SIM_PARSER_LIBS})
+  target_link_libraries(${PROJECT_NAME}-joystick-control-state-machine-test aerial_autonomy ${QUAD_SIM_PARSER_LIBS} ${CERES_LIBRARY} ${CERES_LIBRARIES})
 endif()
 if(TARGET ${PROJECT_NAME}-pos-ctrlr-drone-cnctr-test)
   target_link_libraries(${PROJECT_NAME}-pos-ctrlr-drone-cnctr-test aerial_autonomy ${QUAD_SIM_PARSER_LIBS})
@@ -380,10 +384,10 @@ if(TARGET ${PROJECT_NAME}-joystick-velocity-controller-drone-connector-test)
   target_link_libraries(${PROJECT_NAME}-joystick-velocity-controller-drone-connector-test aerial_autonomy ${QUAD_SIM_PARSER_LIBS})
 endif()
 if(TARGET ${PROJECT_NAME}-logic-states-test)
-  target_link_libraries(${PROJECT_NAME}-logic-states-test proto ${Boost_LIBRARIES} ${PROTOBUF_LIBRARIES} ${GLOG_LIBRARIES})
+  target_link_libraries(${PROJECT_NAME}-logic-states-test proto ${Boost_LIBRARIES} ${PROTOBUF_LIBRARIES} ${GLOG_LIBRARIES} ${GCOP_LIBRARIES} ${TINYXML_LIBRARIES})
 endif()
 if(TARGET ${PROJECT_NAME}-evnt-mngr-test)
-  target_link_libraries(${PROJECT_NAME}-evnt-mngr-test proto ${Boost_LIBRARIES} ${PROTOBUF_LIBRARIES} ${GLOG_LIBRARIES})
+  target_link_libraries(${PROJECT_NAME}-evnt-mngr-test proto ${Boost_LIBRARIES} ${PROTOBUF_LIBRARIES} ${GLOG_LIBRARIES} ${GCOP_LIBRARIES} ${TINYXML_LIBRARIES})
 endif()
 if(TARGET ${PROJECT_NAME}-uav-system-test)
   target_link_libraries(${PROJECT_NAME}-uav-system-test aerial_autonomy ${QUAD_SIM_PARSER_LIBS})
@@ -401,7 +405,7 @@ if(TARGET ${PROJECT_NAME}-arm-functor-tests)
   target_link_libraries(${PROJECT_NAME}-arm-functor-tests aerial_autonomy ${QUAD_SIM_PARSER_LIBS})
 endif()
 if(TARGET ${PROJECT_NAME}-shorting-action-sequence-tests)
-  target_link_libraries(${PROJECT_NAME}-shorting-action-sequence-tests aerial_autonomy)
+  target_link_libraries(${PROJECT_NAME}-shorting-action-sequence-tests aerial_autonomy ${GCOP_LIBRARIES} ${TINYXML_LIBRARIES})
 endif()
 if(TARGET ${PROJECT_NAME}-pick-place-functor-tests)
   target_link_libraries(${PROJECT_NAME}-pick-place-functor-tests aerial_autonomy ${QUAD_SIM_PARSER_LIBS})
@@ -416,10 +420,10 @@ if(TARGET ${PROJECT_NAME}-ctrlr-hrdwr-cnctr-test)
   target_link_libraries(${PROJECT_NAME}-ctrlr-hrdwr-cnctr-test aerial_autonomy)
 endif()
 if(TARGET ${PROJECT_NAME}-state-machine-gui-connector-event-test)
-  target_link_libraries(${PROJECT_NAME}-state-machine-gui-connector-event-test aerial_autonomy)
+  target_link_libraries(${PROJECT_NAME}-state-machine-gui-connector-event-test ${GCOP_LIBRARIES} ${TINYXML_LIBRARIES} aerial_autonomy)
 endif()
 if(TARGET ${PROJECT_NAME}-state-machine-gui-connector-pose-test)
-  target_link_libraries(${PROJECT_NAME}-state-machine-gui-connector-pose-test aerial_autonomy)
+  target_link_libraries(${PROJECT_NAME}-state-machine-gui-connector-pose-test ${GCOP_LIBRARIES} ${TINYXML_LIBRARIES} aerial_autonomy)
 endif()
 if(TARGET ${PROJECT_NAME}-async-timer-test)
   target_link_libraries(${PROJECT_NAME}-async-timer-test aerial_autonomy)
@@ -434,13 +438,13 @@ if(TARGET ${PROJECT_NAME}-thread-safe-state-machine-test)
   target_link_libraries(${PROJECT_NAME}-thread-safe-state-machine-test ${Boost_LIBRARIES} ${catkin_LIBRARIES})
 endif()
 if(TARGET ${PROJECT_NAME}-uav-system-handler-test)
-  target_link_libraries(${PROJECT_NAME}-uav-system-handler-test aerial_autonomy)
+  target_link_libraries(${PROJECT_NAME}-uav-system-handler-test ${GCOP_LIBRARIES} aerial_autonomy)
 endif()
 if(TARGET ${PROJECT_NAME}-uav-vision-system-handler-test)
-  target_link_libraries(${PROJECT_NAME}-uav-vision-system-handler-test aerial_autonomy)
+  target_link_libraries(${PROJECT_NAME}-uav-vision-system-handler-test aerial_autonomy ${GCOP_LIBRARIES})
 endif()
 if(TARGET ${PROJECT_NAME}-uav-arm-system-handler-test)
-  target_link_libraries(${PROJECT_NAME}-uav-arm-system-handler-test aerial_autonomy)
+  target_link_libraries(${PROJECT_NAME}-uav-arm-system-handler-test ${GCOP_LIBRARIES} aerial_autonomy)
 endif()
 if(TARGET ${PROJECT_NAME}-uav-vision-system-test)
   target_link_libraries(${PROJECT_NAME}-uav-vision-system-test aerial_autonomy ${QUAD_SIM_PARSER_LIBS})

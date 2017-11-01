@@ -11,6 +11,8 @@
 #include <aerial_autonomy/controller_hardware_connectors/basic_controller_hardware_connectors.h>
 // Velocity Sensor
 #include <aerial_autonomy/sensors/base_sensor.h>
+// System Id
+#include <gcop/qrotorsystemid.h>
 #include <iomanip>
 #include <sstream>
 
@@ -29,12 +31,17 @@ protected:
    * @brief UAV configuration parameters
    */
   UAVSystemConfig config_;
+  /**
+  * @brief Controller timestep
+  */
+  double controller_timer_duration_;
 
 private:
   /**
   * @brief velocity sensor
   */
-  std::shared_ptr<Sensor<VelocityYaw>> velocity_sensor_;
+  std::shared_ptr<Sensor<std::tuple<VelocityYaw, Position>>>
+      velocity_pose_sensor_;
   // Controllers
   /**
   * @brief Position Controller
@@ -77,6 +84,14 @@ private:
   * @brief Flag to specify if home location is specified or not
   */
   bool home_location_specified_;
+  /**
+  * @ brief Variable to store measurements for system id
+  */
+  std::vector<gcop::QRotorSystemIDMeasurement> system_id_measurements_;
+  /**
+  * @brief system id object
+  */
+  gcop::QRotorSystemID system_id_;
 
 public:
   /**
@@ -97,13 +112,18 @@ public:
   * @param controller_timer_duration Timestep for controllers
   */
   UAVSystem(parsernode::Parser &drone_hardware, UAVSystemConfig config,
-            std::shared_ptr<Sensor<VelocityYaw>> velocity_sensor =
-                std::shared_ptr<Sensor<VelocityYaw>>(new Sensor<VelocityYaw>()),
+            std::shared_ptr<Sensor<std::tuple<VelocityYaw, Position>>>
+                velocity_pose_sensor =
+                    std::shared_ptr<Sensor<std::tuple<VelocityYaw, Position>>>(
+                        new Sensor<std::tuple<VelocityYaw, Position>>()),
             double controller_timer_duration = 0.02)
       : BaseRobotSystem(), drone_hardware_(drone_hardware), config_(config),
-        velocity_sensor_(velocity_sensor),
+        controller_timer_duration_(controller_timer_duration),
+        velocity_pose_sensor_(velocity_pose_sensor),
         builtin_position_controller_(config.position_controller_config()),
         builtin_velocity_controller_(config.velocity_controller_config()),
+        manual_rpyt_controller_(config.manual_rpyt_controller_config(),
+                                controller_timer_duration),
         joystick_velocity_controller_(
             config.joystick_velocity_controller_config(),
             controller_timer_duration),
@@ -114,7 +134,8 @@ public:
         rpyt_controller_drone_connector_(drone_hardware,
                                          manual_rpyt_controller_),
         joystick_velocity_controller_drone_connector_(
-            drone_hardware, joystick_velocity_controller_, *velocity_sensor),
+            drone_hardware, joystick_velocity_controller_,
+            *velocity_pose_sensor),
         home_location_specified_(false) {
     // Add control hardware connector containers
     controller_hardware_connector_container_.setObject(
@@ -125,6 +146,19 @@ public:
         rpyt_controller_drone_connector_);
     controller_hardware_connector_container_.setObject(
         joystick_velocity_controller_drone_connector_);
+
+    DATA_HEADER("system_id_measurements_") << "Timestamp"
+                                           << "PositionX"
+                                           << "PositionY"
+                                           << "PositionZ"
+                                           << "Roll "
+                                           << "Pitch"
+                                           << "Yaw"
+                                           << "CommandedThrust"
+                                           << "CommandedRoll"
+                                           << "CommandedPitch"
+                                           << "CommandedYawRate"
+                                           << DataStream::endl;
   }
   /**
   * @brief Get sensor data from UAV
@@ -140,8 +174,15 @@ public:
   /**
   * @brief Get status of the sensor
   */
-  SensorStatus getVelocitySensorStatus() {
-    return velocity_sensor_->getSensorStatus();
+  SensorStatus getVelocityPoseSensorStatus() {
+    return velocity_pose_sensor_->getSensorStatus();
+  }
+
+  /**
+  * @brief Get data from sensor
+  */
+  std::tuple<VelocityYaw, Position> getVelocityPoseSensorData() {
+    return velocity_pose_sensor_->getSensorData();
   }
 
   /**
@@ -263,4 +304,117 @@ public:
       RPYTBasedVelocityControllerConfig &config) {
     joystick_velocity_controller_.updateRPYTConfig(config);
   }
+  /**
+  * @brief get the rpyt controller config
+  */
+  RPYTBasedVelocityControllerConfig getRPYTVelocityControllerConfig() {
+    return joystick_velocity_controller_.getRPYTConfig();
+  }
+  /**
+  * @brief get last commanded yaw
+  * /todo soham remove after implementing estimators class
+  */
+  double getLastCommandedYaw() {
+    return manual_rpyt_controller_.getLastCommandedYaw();
+  }
+  /**
+  * @brief set last commanded yaw
+  *
+  * @param manual_controller Flag to check which controller to set for
+  * true: set for velocity-yaw controller
+  * false: set for manual rpyt controller
+  *
+  * \todo soham replace by reset function in controller
+  */
+  void setLastCommandedYaw(double last_commanded_yaw,
+                           bool manual_controller = false) {
+    if (manual_controller)
+      manual_rpyt_controller_.setLastCommandedYaw(last_commanded_yaw);
+    else
+      joystick_velocity_controller_.setLastCommandedYaw(last_commanded_yaw);
+  }
+  /**
+  * @brief add measurements for system id
+  */
+  void addMeasurement(gcop::QRotorSystemIDMeasurement measurement) {
+    DATA_LOG("system_id_measurements_")
+        << measurement.t << measurement.position[0] << measurement.position[1]
+        << measurement.position[2] << measurement.rpy[0] << measurement.rpy[1]
+        << measurement.rpy[2] << measurement.control[0]
+        << measurement.control[1] << measurement.control[2]
+        << measurement.control[3] << DataStream::endl;
+
+    system_id_measurements_.push_back(measurement);
+  }
+  /**
+  * @brief reset measurements
+  */
+  void clearMeasurements() { system_id_measurements_.clear(); }
+  /**
+  * @brief run system id
+  */
+  void runSystemId() {
+    if (system_id_measurements_.size() <= 101) {
+      // \todo soham make it a parameter
+      LOG(WARNING) << "Too few measurements for system id. Exiting.";
+      return;
+    }
+
+    int trajectory_length = 100;
+    std::vector<gcop::QRotorSystemIDMeasurement> estimator_measurements;
+    int iterations = system_id_measurements_.size() / trajectory_length;
+
+    for (int k = 0; k < iterations; k++) {
+      gcop::QRotorIDState init_state;
+      init_state.p = system_id_measurements_[k * trajectory_length].position;
+      const Eigen::Vector3d &rpy =
+          system_id_measurements_[k * trajectory_length].rpy;
+
+      gcop::SO3 &so3 = gcop::SO3::Instance();
+      so3.q2g(init_state.R, rpy);
+      init_state.u << 0, 0, rpy(2);
+
+      estimator_measurements.resize(trajectory_length);
+      // \todo soham make both these parameters
+      for (int j = 0; j < trajectory_length; j++) {
+        estimator_measurements[j].t =
+            system_id_measurements_[k * trajectory_length + j + 1].t;
+        estimator_measurements[j].position =
+            system_id_measurements_[k * trajectory_length + j + 1].position;
+        estimator_measurements[j].rpy =
+            system_id_measurements_[k * trajectory_length + j + 1].rpy;
+        // convert to rolldot, pitchdot
+        estimator_measurements[j].control
+            << system_id_measurements_[k * trajectory_length + j + 1]
+                   .control[0],
+            (system_id_measurements_[k * trajectory_length + j + 1].control[1] -
+             system_id_measurements_[k * trajectory_length + j].control[1]) /
+                controller_timer_duration_,
+            (system_id_measurements_[k * trajectory_length + j + 1].control[2] -
+             system_id_measurements_[k * trajectory_length + j].control[2]) /
+                controller_timer_duration_,
+            system_id_measurements_[k * trajectory_length + j + 1].control[3];
+      }
+      // Run estimator
+      system_id_.offsets_timeperiod = 0.5; // \todo soham make it a param
+      system_id_.EstimateParameters(estimator_measurements, init_state);
+      estimator_measurements.clear();
+      // Update gain only if gain is within bounds
+      if ((system_id_.qrotor_gains_lb[0] < system_id_.qrotor_gains[0]) &
+          (system_id_.qrotor_gains_ub[0] > system_id_.qrotor_gains[0])) {
+        RPYTBasedVelocityControllerConfig config;
+        VLOG(1) << "kt changed to " << system_id_.qrotor_gains[0] << "\n";
+        config.set_kt(system_id_.qrotor_gains[0]);
+        updateRPYTVelocityControllerConfig(config);
+      } else {
+        LOG(WARNING) << "Gain out of bounds";
+      }
+    }
+    clearMeasurements();
+  }
+
+  /**
+  * @brief returns the controller timestep
+  */
+  double getControllerTimerDuration() { return controller_timer_duration_; }
 };
