@@ -100,9 +100,16 @@ public:
   *
   * @param uav_system robot system that is stored internally
   * and shared with events
+  * @param state_machine_config store config variables for state
+  * machine
   */
+  PickPlaceStateMachineFrontEnd(
+      UAVArmSystem &uav_system,
+      const BaseStateMachineConfig &state_machine_config)
+      : BaseStateMachine(uav_system, state_machine_config) {}
+
   PickPlaceStateMachineFrontEnd(UAVArmSystem &uav_system)
-      : BaseStateMachine(uav_system) {}
+      : PickPlaceStateMachineFrontEnd(uav_system, BaseStateMachineConfig()){};
 
   /**
   * @brief Initial state for state machine
@@ -133,8 +140,19 @@ public:
             msmf::Row<psa::Hovering, PositionYaw, psa::ReachingGoal,
                       psa::ReachingGoalSet, psa::ReachingGoalGuard>,
             //        +--------------+-------------+--------------+---------------------+---------------------------+
-            msmf::Row<psa::Hovering, pe::Pick, psa::PrePickState,
-                      psa::PrePickTransitionAction, psa::PickTransitionGuard>,
+            msmf::Row<psa::Hovering, pe::Pick, psa::RelativePoseVisualServoing,
+                      psa::RelativePoseVisualServoingTransitionAction,
+                      psa::RelativePoseVisualServoingTransitionGuard>,
+            //        +--------------+-------------+--------------+---------------------+---------------------------+
+            msmf::Row<psa::Hovering, VelocityYaw, psa::ExecutingVelocityGoal,
+                      psa::SetVelocityGoal, psa::GuardVelocityGoal>,
+            //        +--------------+-------------+--------------+---------------------+---------------------------+
+            msmf::Row<psa::RelativePoseVisualServoing, Completed,
+                      psa::PrePickState, psa::PrePickTransitionAction,
+                      psa::PickTransitionGuard>,
+            //        +--------------+-------------+--------------+---------------------+---------------------------+
+            msmf::Row<psa::RelativePoseVisualServoing, be::Abort, psa::Hovering,
+                      psa::UAVControllerAbort, msmf::none>,
             //        +--------------+-------------+--------------+---------------------+---------------------------+
             msmf::Row<psa::PrePickState, Completed, psa::PickState,
                       psa::PickTransitionAction, msmf::none>,
@@ -160,6 +178,16 @@ public:
             msmf::Row<psa::ReachingGoal, be::Land, psa::ArmPreLandingFolding,
                       psa::ArmFold, msmf::none>,
             //        +--------------+-------------+--------------+---------------------+---------------------------+
+            msmf::Row<psa::ExecutingVelocityGoal, VelocityYaw,
+                      psa::ExecutingVelocityGoal, psa::SetVelocityGoal,
+                      psa::GuardVelocityGoal>,
+            //        +--------------+-------------+--------------+---------------------+---------------------------+
+            msmf::Row<psa::ExecutingVelocityGoal, be::Land,
+                      psa::ArmPreLandingFolding, psa::ArmFold, msmf::none>,
+            //        +--------------+-------------+--------------+---------------------+---------------------------+
+            msmf::Row<psa::ExecutingVelocityGoal, be::Abort, psa::Hovering,
+                      psa::AbortUAVControllerArmRightFold, msmf::none>,
+            //        +--------------+-------------+--------------+---------------------+---------------------------+
             msmf::Row<psa::PrePickState, be::Abort, psa::Hovering,
                       psa::AbortUAVArmController, msmf::none>,
             //        +--------------+-------------+--------------+---------------------+---------------------------+
@@ -178,8 +206,11 @@ public:
             msmf::Row<psa::ReachingGoal, Completed, psa::Hovering,
                       psa::AbortUAVControllerArmRightFold, msmf::none>,
             //        +--------------+-------------+--------------+---------------------+---------------------------+
-            msmf::Row<psa::PickState, Completed, psa::Hovering,
-                      psa::AbortUAVArmController, psa::PickGuard>,
+            msmf::Row<psa::PickState, Reset, psa::Hovering, msmf::none,
+                      msmf::none>,
+            //        +--------------+-------------+--------------+---------------------+---------------------------+
+            msmf::Row<psa::PickState, Completed, psa::Hovering, msmf::none,
+                      msmf::none>,
             //        +--------------+-------------+--------------+---------------------+---------------------------+
             msmf::Row<psa::ManualControlArmState, be::Takeoff, psa::Hovering,
                       psa::ManualControlSwitchAction,
@@ -197,10 +228,19 @@ public:
 /**
 * @brief state names to get name based on state id
 */
-static constexpr std::array<const char *, 10> state_names = {
-    "Landed",       "ArmPreTakeoffFolding", "Takingoff",    "Hovering",
-    "PrePickState", "ArmPreLandingFolding", "ReachingGoal", "PickState",
-    "Landing",      "ManualControlArmState"};
+static constexpr std::array<const char *, 13> state_names = {
+    "Landed",
+    "ArmPreTakeoffFolding",
+    "Takingoff",
+    "Hovering",
+    "RelativePoseVisualServoing",
+    "PrePickState",
+    "ArmPreLandingFolding",
+    "ReachingGoal",
+    "ExecutingVelocityGoal",
+    "PickState",
+    "Landing",
+    "ManualControlArmState"};
 /**
 * @brief Get current state name
 *

@@ -89,8 +89,9 @@ public:
   * @param uav_system robot system that is stored internally
   * and shared with events
   */
-  JoystickControlStateMachineFrontEnd(UAVSystem &uav_system)
-      : BaseStateMachine(uav_system) {}
+  JoystickControlStateMachineFrontEnd(
+      UAVSystem &uav_system, const BaseStateMachineConfig &state_machine_config)
+      : BaseStateMachine(uav_system, state_machine_config) {}
 
   /**
   * @brief Initial state for state machine

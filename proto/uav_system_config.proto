@@ -49,10 +49,16 @@ message UAVSystemConfig {
 
   optional ManualRPYTControllerConfig manual_rpyt_controller_config = 9;
   /**
+  * @brief Sets the max velocity the velocity controller can track
+  * along x, y, z axis.
+  */
+  optional double max_goal_velocity = 10 [ default = 2.0 ];
+  /**
   * @brief A crude form of inheritance for proto. Contains a config for
   * subclasses of UAVSystemConfig
   */
   oneof subclass { 
-  UAVVisionSystemConfig uav_vision_system_config = 10; 
+  UAVVisionSystemConfig uav_vision_system_config = 11; 
 }
+
 }

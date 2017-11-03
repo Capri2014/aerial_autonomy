@@ -15,8 +15,9 @@ using namespace quad_simulator;
 */
 using psa = PickPlaceStatesActions<UAVArmLogicStateMachine>;
 
-// Visual Servoing
-using PickInternalAction = PickInternalActionFunctor_<UAVArmLogicStateMachine>;
+// Picking internal actions
+using PrePickInternalAction =
+    PrePickInternalActionFunctor_<UAVArmLogicStateMachine>;
 
 using ArmFoldInternalAction =
     ArmFoldInternalActionFunctor_<UAVArmLogicStateMachine>;
@@ -38,6 +39,9 @@ protected:
         uav_vision_system_config->mutable_uav_arm_system_config();
     for (int i = 0; i < 6; ++i) {
       uav_vision_system_config->add_camera_transform(0.0);
+    }
+    for (int i = 0; i < 6; ++i) {
+      uav_vision_system_config->add_tracking_offset_transform(0.0);
     }
     // Flipped arm
     // Arm transform xyz(0.2,0,-0.1), rpy(pi,0,0):
@@ -62,6 +66,13 @@ protected:
     uav_arm_system_config->add_arm_goal_transform(0);
     uav_arm_system_config->add_arm_goal_transform(0);
     uav_arm_system_config->add_arm_goal_transform(0);
+
+    uav_vision_system_config->add_relative_pose_goals();
+    auto pose_goal = uav_vision_system_config->add_relative_pose_goals();
+    pose_goal->mutable_position()->set_x(1);
+    pose_goal->mutable_position()->set_y(-1);
+    pose_goal->mutable_position()->set_z(1);
+    pose_goal->set_yaw(0);
 
     uav_vision_system_config->set_desired_visual_servoing_distance(1.0);
     tf::Transform camera_transform = math::getTransformFromVector(
@@ -91,7 +102,7 @@ protected:
 /// \brief Test Visual Servoing
 TEST_F(PickPlaceFunctorTests, Constructor) {
   ASSERT_NO_THROW(new psa::PickTransitionAction());
-  ASSERT_NO_THROW(new PickInternalAction());
+  ASSERT_NO_THROW(new PrePickInternalAction());
   ASSERT_NO_THROW(new ArmFoldInternalAction());
 }
 
@@ -110,13 +121,6 @@ TEST_F(PickPlaceFunctorTests, CallPrePickActionFunction) {
                                           dummy_target_state));
   pick_place_transition_action(NULL, *sample_logic_state_machine,
                                dummy_start_state, dummy_target_state);
-  ASSERT_TRUE(uav_arm_system->isHomeLocationSpecified());
-  ASSERT_EQ(uav_arm_system->getHomeLocation(), PositionYaw(0, 0, 0, 0));
-  // Get goal from controllerConnector and check if the goal is what we expect
-  Position goal =
-      uav_arm_system
-          ->getGoal<VisualServoingControllerDroneConnector, Position>();
-  ASSERT_EQ(goal, roi_goal / roi_goal.norm());
   // Arm goal
   tf::Transform arm_goal =
       uav_arm_system
@@ -140,19 +144,11 @@ TEST_F(PickPlaceFunctorTests, CallPickActionFunction) {
                                           dummy_target_state));
   pick_place_transition_action(NULL, *sample_logic_state_machine,
                                dummy_start_state, dummy_target_state);
-  ASSERT_TRUE(uav_arm_system->isHomeLocationSpecified());
-  ASSERT_EQ(uav_arm_system->getHomeLocation(), PositionYaw(0, 0, 0, 0));
-  // Get goal from controllerConnector and check if the goal is what we expect
-  Position goal =
-      uav_arm_system
-          ->getGoal<VisualServoingControllerDroneConnector, Position>();
-  ASSERT_EQ(goal, roi_goal / roi_goal.norm());
-  // Arm goal
-  tf::Transform arm_goal =
-      uav_arm_system
-          ->getGoal<VisualServoingControllerArmConnector, tf::Transform>();
+  // UAV goal
+  PositionYaw uav_goal = uav_arm_system->getGoal<
+      RelativePoseVisualServoingControllerDroneConnector, PositionYaw>();
   // Check origin
-  ASSERT_EQ(arm_goal.getOrigin(), tf::Vector3(-0.2, 0, 0));
+  ASSERT_EQ(uav_goal, PositionYaw(1, -1, 1, 0));
 }
 
 TEST_F(PickPlaceFunctorTests, PoweroffCallGuardFunction) {
@@ -165,9 +161,10 @@ TEST_F(PickPlaceFunctorTests, PoweroffCallGuardFunction) {
   ASSERT_FALSE(result);
 }
 
-// Call Internal Action function after setting the quad to the right target
+// Call PrePick Internal Action function after setting the quad to the right
+// target
 // location and Arm to right location
-TEST_F(PickPlaceFunctorTests, CallInternalActionFunction) {
+TEST_F(PickPlaceFunctorTests, CallPrePickInternalActionFunction) {
   // Specify a global position
   Position roi_goal(5, 0, 0.5);
   simple_tracker->setTargetPositionGlobalFrame(roi_goal);
@@ -177,7 +174,7 @@ TEST_F(PickPlaceFunctorTests, CallInternalActionFunction) {
   // Power on arm
   uav_arm_system->power(true);
   // Call action functor
-  psa::PickTransitionAction pick_place_transition_action;
+  psa::PrePickTransitionAction pick_place_transition_action;
   psa::PickTransitionGuard pick_place_transition_guard;
   int dummy_start_state, dummy_target_state;
   ASSERT_TRUE(pick_place_transition_guard(NULL, *sample_logic_state_machine,
@@ -187,15 +184,8 @@ TEST_F(PickPlaceFunctorTests, CallInternalActionFunction) {
                                dummy_start_state, dummy_target_state);
   // After transition the status should be active
   ControllerStatus status;
-  status = uav_arm_system->getStatus<VisualServoingControllerDroneConnector>();
-  ASSERT_EQ(status, ControllerStatus::Active);
   status = uav_arm_system->getStatus<VisualServoingControllerArmConnector>();
   ASSERT_EQ(status, ControllerStatus::Active);
-  // Get Goal
-  Position goal =
-      uav_arm_system
-          ->getGoal<VisualServoingControllerDroneConnector, Position>();
-  ASSERT_EQ(goal, Position(1, 0, 0));
   // Set quadrotor to the target location
   double desired_yaw = 0.0;
   geometry_msgs::Vector3 desired_position;
@@ -203,11 +193,6 @@ TEST_F(PickPlaceFunctorTests, CallInternalActionFunction) {
   desired_position.y = roi_goal.y;
   desired_position.z = roi_goal.z;
   drone_hardware.cmdwaypoint(desired_position, desired_yaw);
-  // Call controller loop:
-  uav_arm_system->runActiveController(HardwareType::UAV);
-  // Get status
-  status = uav_arm_system->getStatus<VisualServoingControllerDroneConnector>();
-  ASSERT_EQ(status, ControllerStatus::Completed);
   // Set Arm to target location by running arm controller
   uav_arm_system->runActiveController(HardwareType::Arm);
   // Rerun loop to update status
@@ -216,7 +201,7 @@ TEST_F(PickPlaceFunctorTests, CallInternalActionFunction) {
   status = uav_arm_system->getStatus<VisualServoingControllerArmConnector>();
   ASSERT_EQ(status, ControllerStatus::Completed);
   // Call internal action functor
-  PickInternalAction pick_internal_action;
+  PrePickInternalAction pick_internal_action;
   pick_internal_action(NULL, *sample_logic_state_machine, dummy_start_state,
                        dummy_target_state);
   ASSERT_EQ(sample_logic_state_machine->getProcessEventTypeId(),

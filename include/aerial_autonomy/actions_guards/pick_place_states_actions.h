@@ -101,15 +101,14 @@ struct PickPlaceStatesActions
   * @brief Set goal for visual servoing and also arm controller
   */
   using PickTransitionAction = bActionSequence<boost::mpl::vector<
-      typename vsa::VisualServoingTransitionAction,
-      VisualServoingArmTransitionActionFunctor_<LogicStateMachineT, 1>>>;
+      AbortArmController, RelativePoseVisualServoingTransitionActionFunctor_<
+                              LogicStateMachineT, 1, false>>>;
   /**
   * @brief Set goal for visual servoing and also arm controller for positioning
   * arm for pick
   */
-  using PrePickTransitionAction = bActionSequence<boost::mpl::vector<
-      typename vsa::VisualServoingTransitionAction,
-      VisualServoingArmTransitionActionFunctor_<LogicStateMachineT, 0>>>;
+  using PrePickTransitionAction =
+      VisualServoingArmTransitionActionFunctor_<LogicStateMachineT, 0>;
   /**
   * @brief Action to take when starting folding arm before takeoff
   */
@@ -123,15 +122,10 @@ struct PickPlaceStatesActions
       boost::mpl::vector<typename usa::UAVControllerAbort, AbortArmController>>;
   // Guards
   /**
-  * @brief Guard to stop pick place if arm is not powered or vision is not
-  * working
+  * @brief Guard to stop pick place if arm is not powered
   */
-  using PickTransitionGuard = bAnd<typename vsa::VisualServoingTransitionGuard,
-                                   ArmEnabledGuardFunctor_<LogicStateMachineT>>;
-  /**
-  * @brief Action to grab an object
-  */
-  using PickGuard = PickGuard_<LogicStateMachineT>;
+  using PickTransitionGuard = ArmEnabledGuardFunctor_<LogicStateMachineT>;
+
   // Explicitly defined manual Control state
   /**
   * @brief State that checks arm status along with regular manual control

@@ -85,9 +85,14 @@ public:
   *
   * @param uav_system robot system that is stored internally
   * and shared with events
+  * @param state_machine_config store config variables for state
+  * machine
   */
-  UAVStateMachineFrontEnd(UAVSystem &uav_system)
-      : BaseStateMachine(uav_system) {}
+  UAVStateMachineFrontEnd(UAVSystem &uav_system,
+                          const BaseStateMachineConfig &state_machine_config)
+      : BaseStateMachine(uav_system, state_machine_config) {
+    // Store state machine configs
+  }
 
   /**
   * @brief Initial state for state machine
@@ -110,6 +115,8 @@ public:
             //        +--------------+-------------+--------------+---------------------+---------------------------+
             msmf::Row<usa::Hovering, PositionYaw, usa::ReachingGoal,
                       usa::ReachingGoalSet, usa::ReachingGoalGuard>,
+            msmf::Row<usa::Hovering, VelocityYaw, usa::ExecutingVelocityGoal,
+                      usa::SetVelocityGoal, usa::GuardVelocityGoal>,
             msmf::Row<usa::Hovering, be::Land, usa::Landing, usa::LandingAction,
                       msmf::none>,
             msmf::Row<usa::Hovering, ManualControlEvent,
@@ -118,6 +125,14 @@ public:
             msmf::Row<usa::ReachingGoal, be::Abort, usa::Hovering,
                       usa::UAVControllerAbort, msmf::none>,
             msmf::Row<usa::ReachingGoal, be::Land, usa::Landing,
+                      usa::ReachingGoalLand, msmf::none>,
+            //        +--------------+-------------+--------------+---------------------+---------------------------+
+            msmf::Row<usa::ExecutingVelocityGoal, VelocityYaw,
+                      usa::ExecutingVelocityGoal, usa::SetVelocityGoal,
+                      usa::GuardVelocityGoal>,
+            msmf::Row<usa::ExecutingVelocityGoal, be::Abort, usa::Hovering,
+                      usa::UAVControllerAbort, msmf::none>,
+            msmf::Row<usa::ExecutingVelocityGoal, be::Land, usa::Landing,
                       usa::ReachingGoalLand, msmf::none>,
             //        +--------------+-------------+--------------+---------------------+---------------------------+
             msmf::Row<usa::Landing, Completed, usa::Landed, msmf::none,
@@ -142,9 +157,14 @@ public:
 /**
 * @brief state names to get name based on state id
 */
-static constexpr std::array<const char *, 6> state_names = {
-    "Landed",       "TakingOff", "Hovering",
-    "ReachingGoal", "Landing",   "ManualControlState"};
+static constexpr std::array<const char *, 7> state_names = {
+    "Landed",
+    "TakingOff",
+    "Hovering",
+    "ReachingGoal",
+    "ExecutingVelocityGoal",
+    "Landing",
+    "ManualControlState"};
 /**
 * @brief Get current state name
 *

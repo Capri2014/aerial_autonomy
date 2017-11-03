@@ -4,6 +4,7 @@
 #include <aerial_autonomy/robot_systems/uav_vision_system.h>
 #include <aerial_autonomy/state_machines/base_state_machine.h>
 #include <aerial_autonomy/types/position_yaw.h>
+#include <aerial_autonomy/types/velocity_yaw.h>
 #include <type_traits>
 
 /**
@@ -28,14 +29,30 @@ class SampleLogicStateMachine_ : public BaseStateMachine<RobotSystemT> {
   */
   PositionYaw pose_event_;
 
+  /**
+   * @brief Velocityyaw message that was triggered
+   */
+  VelocityYaw velocity_event_;
+
 public:
   /**
    * @brief Constructor that takes robot system
    *
    * @param robot_system provides actions to select controllers, get/set Goals.
    */
+  SampleLogicStateMachine_(
+      RobotSystemT &robot_system,
+      const BaseStateMachineConfig &base_state_machine_config)
+      : BaseStateMachine<RobotSystemT>(robot_system,
+                                       base_state_machine_config) {}
+
+  /**
+   * @brief Constructor that uses a default state machine config
+   *
+   * @param robot_system provides actions to select controllers, get/set Goals.
+   */
   SampleLogicStateMachine_(RobotSystemT &robot_system)
-      : BaseStateMachine<RobotSystemT>(robot_system) {}
+      : SampleLogicStateMachine_(robot_system, BaseStateMachineConfig()) {}
 
   /**
   * @brief Generic process event that stores the event type
@@ -56,6 +73,18 @@ public:
     type_index_event_ = typeid(event);
     pose_event_ = event;
   }
+
+  /**
+   * @brief special implementation for processing velocity
+   * yaw message
+   *
+   * @param event velocity yaw command sent to state machine
+   */
+  void process_event(const VelocityYaw &event) {
+    type_index_event_ = typeid(event);
+    velocity_event_ = event;
+  }
+
   /**
   * @brief retrieve the event type_index of last processed event
   *
@@ -68,6 +97,13 @@ public:
   * @return poseyaw event message
   */
   PositionYaw getPoseEvent() { return pose_event_; }
+
+  /**
+   * @brief get the received velocity yaw event
+   *
+   * @return velocityyaw event message
+   */
+  VelocityYaw getVelocityEvent() { return velocity_event_; }
 };
 
 /**

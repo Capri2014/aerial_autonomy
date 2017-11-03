@@ -1,22 +1,48 @@
 #include <aerial_autonomy/common/math.h>
 #include <aerial_autonomy/controllers/velocity_based_position_controller.h>
-#include <aerial_autonomy/log/log.h>
 #include <glog/logging.h>
 
-bool VelocityBasedPositionController::runImplementation(PositionYaw sensor_data,
-                                                        PositionYaw goal,
-                                                        VelocityYaw &control) {
+void VelocityBasedPositionController::resetIntegrator() {
+  cumulative_error = PositionYaw(0, 0, 0, 0);
+}
+
+double VelocityBasedPositionController::backCalculate(
+    double &integrator, const double &p_command, const double &saturation,
+    const double &integrator_saturation_gain) {
+  double command = p_command + integrator;
+  double command_out = math::clamp(command, -saturation, saturation);
+  integrator += integrator_saturation_gain * (command_out - command);
+  return command_out;
+}
+
+bool VelocityBasedPositionController::runImplementation(
+    PositionYaw sensor_data, PositionYaw goal, VelocityYawRate &control) {
   PositionYaw position_diff = goal - sensor_data;
-  auto yaw_cmd = math::angleWrap(
-      sensor_data.yaw + math::clamp(config_.yaw_gain() * position_diff.yaw,
-                                    -config_.max_yaw_rate(),
-                                    config_.max_yaw_rate()));
-  double position_norm = position_diff.position().norm();
-  double velocity =
-      std::min(config_.max_velocity(), config_.position_gain() * position_norm);
-  control = VelocityYaw(velocity * position_diff.x / position_norm,
-                        velocity * position_diff.y / position_norm,
-                        velocity * position_diff.z / position_norm, yaw_cmd);
+  PositionYaw p_position_diff(position_diff.position() *
+                                  config_.position_gain(),
+                              position_diff.yaw * config_.yaw_gain());
+
+  control.x = backCalculate(cumulative_error.x, p_position_diff.x,
+                            config_.max_velocity(), position_saturation_gain_);
+  control.y = backCalculate(cumulative_error.y, p_position_diff.y,
+                            config_.max_velocity(), position_saturation_gain_);
+  control.z = backCalculate(cumulative_error.z, p_position_diff.z,
+                            config_.max_velocity(), position_saturation_gain_);
+
+  control.yaw_rate =
+      backCalculate(cumulative_error.yaw, p_position_diff.yaw,
+                    config_.max_yaw_rate(), yaw_saturation_gain_);
+
+  PositionYaw i_position_diff(position_diff.position() *
+                                  config_.position_i_gain(),
+                              position_diff.yaw * config_.yaw_i_gain());
+  cumulative_error = cumulative_error + i_position_diff * dt;
+
+  DATA_LOG("velocity_based_position_controller")
+      << position_diff.x << position_diff.y << position_diff.z
+      << position_diff.yaw << cumulative_error.x << cumulative_error.y
+      << cumulative_error.z << cumulative_error.yaw << control.x << control.y
+      << control.z << control.yaw_rate << DataStream::endl;
   return true;
 }
 
@@ -26,9 +52,6 @@ ControllerStatus VelocityBasedPositionController::isConvergedImplementation(
   ControllerStatus status(ControllerStatus::Active);
   status << "Error Position, Yaw: " << position_diff.x << position_diff.y
          << position_diff.z << position_diff.yaw;
-  DATA_LOG("velocity_based_position_controller")
-      << position_diff.x << position_diff.y << position_diff.z
-      << position_diff.yaw << DataStream::endl;
   const PositionControllerConfig &position_controller_config =
       config_.position_controller_config();
   const config::Position &tolerance_pos =
@@ -43,4 +66,31 @@ ControllerStatus VelocityBasedPositionController::isConvergedImplementation(
     status.setStatus(ControllerStatus::Completed, "Reached goal");
   }
   return status;
+}
+
+aerial_autonomy::VelocityBasedPositionControllerDynamicConfig
+VelocityBasedPositionController::getDefaultConfig() const {
+  VelocityBasedPositionControllerConfig config;
+  aerial_autonomy::VelocityBasedPositionControllerDynamicConfig dynamic_config;
+  dynamic_config.position_gain = config.position_gain();
+  dynamic_config.yaw_gain = config.yaw_gain();
+  dynamic_config.max_velocity = config.max_velocity();
+  dynamic_config.max_yaw_rate = config.max_yaw_rate();
+  dynamic_config.yaw_i_gain = config.yaw_i_gain();
+  dynamic_config.position_i_gain = config.position_i_gain();
+  dynamic_config.integrator_saturation_gain =
+      config.integrator_saturation_gain();
+  return dynamic_config;
+}
+
+void VelocityBasedPositionController::updateConfig(
+    const aerial_autonomy::VelocityBasedPositionControllerDynamicConfig
+        &dynamic_config) {
+  config_.set_yaw_gain(dynamic_config.yaw_gain);
+  config_.set_max_velocity(dynamic_config.max_velocity);
+  config_.set_max_yaw_rate(dynamic_config.max_yaw_rate);
+  config_.set_yaw_i_gain(dynamic_config.yaw_i_gain);
+  config_.set_position_i_gain(dynamic_config.position_i_gain);
+  config_.set_integrator_saturation_gain(
+      dynamic_config.integrator_saturation_gain);
 }

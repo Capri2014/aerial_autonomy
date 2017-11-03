@@ -60,7 +60,7 @@ public:
    *
    * @return timeout used for gripping
    */
-  uint32_t gripTimeout() { return grip_timeout_; }
+  std::chrono::milliseconds gripTimeout() { return grip_timeout_; }
 
   /**
    * @brief getter for transfrom from arm to object
@@ -74,10 +74,11 @@ private:
   /**
   * @brief Timeout for gripping by arm
   */
-  uint32_t grip_timeout_;
+  std::chrono::milliseconds grip_timeout_;
   /**
   * @brief Arm transforms in the frame of the UAV
   */
+  // \todo Matt Move to state machine config
   std::vector<tf::Transform> arm_goal_transforms_;
   /**
   * @brief Arm transform in the frame of the UAV

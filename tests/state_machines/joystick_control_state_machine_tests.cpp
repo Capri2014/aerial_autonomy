@@ -45,8 +45,9 @@ public:
 
     uav_system.reset(new UAVSystem(drone_hardware, uav_system_config,
                                    velocity_sensor, 0.02));
-    logic_state_machine.reset(
-        new JoystickControlStateMachine(boost::ref(*uav_system)));
+
+    logic_state_machine.reset(new JoystickControlStateMachine(
+        boost::ref(*uav_system), boost::cref(state_machine_config)));
     logic_state_machine->start();
     // Will switch to Landed state from manual control state
     logic_state_machine->process_event(InternalTransitionEvent());
@@ -56,6 +57,7 @@ protected:
   std::unique_ptr<JoystickControlStateMachine> logic_state_machine;
   std::unique_ptr<UAVSystem> uav_system;
   UAVSystemConfig uav_system_config;
+  BaseStateMachineConfig state_machine_config;
   QuadSimulator drone_hardware;
   std::shared_ptr<Sensor<std::tuple<VelocityYaw, Position>>> velocity_sensor;
   RPYTBasedVelocityControllerConfig rpyt_config;

@@ -16,6 +16,7 @@ public:
   UAVArmSystemHandlerTests() : BaseTestPubSubs() {
     // Configure system
     UAVSystemHandlerConfig uav_system_handler_config;
+    BaseStateMachineConfig state_machine_config;
     uav_system_handler_config.set_uav_parser_type(
         "quad_simulator_parser/QuadSimParser");
     uav_system_handler_config.mutable_uav_arm_system_handler_config()
@@ -26,6 +27,9 @@ public:
       uav_system_handler_config.mutable_uav_system_config()
           ->mutable_uav_vision_system_config()
           ->add_camera_transform(0.0);
+      uav_system_handler_config.mutable_uav_system_config()
+          ->mutable_uav_vision_system_config()
+          ->add_tracking_offset_transform(0.0);
 
       uav_system_handler_config.mutable_uav_system_config()
           ->mutable_uav_vision_system_config()
@@ -42,7 +46,7 @@ public:
         new UAVArmSystemHandler<
             PickPlaceStateMachine,
             pick_place_events::PickPlaceEventManager<PickPlaceStateMachine>>(
-            uav_system_handler_config));
+            uav_system_handler_config, state_machine_config));
     ros::spinOnce();
   }
 

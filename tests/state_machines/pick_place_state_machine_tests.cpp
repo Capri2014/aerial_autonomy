@@ -1,4 +1,5 @@
 #include <aerial_autonomy/state_machines/pick_place_state_machine.h>
+#include <aerial_autonomy/tests/test_utils.h>
 #include <aerial_autonomy/trackers/simple_tracker.h>
 #include <arm_parsers/arm_simulator.h>
 #include <gtest/gtest.h>
@@ -34,6 +35,7 @@ public:
     auto uav_vision_system_config = config.mutable_uav_vision_system_config();
     for (int i = 0; i < 6; ++i) {
       uav_vision_system_config->add_camera_transform(0.0);
+      uav_vision_system_config->add_tracking_offset_transform(0.0);
     }
     uav_vision_system_config->set_desired_visual_servoing_distance(1.0);
     auto uav_arm_system_config =
@@ -53,6 +55,28 @@ public:
     position_tolerance->set_x(goal_tolerance_position);
     position_tolerance->set_y(goal_tolerance_position);
     position_tolerance->set_z(goal_tolerance_position);
+
+    auto vel_based_pos_controller_config =
+        uav_vision_system_config
+            ->mutable_velocity_based_relative_pose_controller_config()
+            ->mutable_velocity_based_position_controller_config();
+    vel_based_pos_controller_config->set_position_gain(10.);
+    auto relative_pose_vs_position_tolerance =
+        vel_based_pos_controller_config->mutable_position_controller_config()
+            ->mutable_goal_position_tolerance();
+    vel_based_pos_controller_config->mutable_position_controller_config()
+        ->set_goal_yaw_tolerance(0.1);
+    relative_pose_vs_position_tolerance->set_x(0.1);
+    relative_pose_vs_position_tolerance->set_y(0.1);
+    relative_pose_vs_position_tolerance->set_z(0.1);
+    auto pose_goal = uav_vision_system_config->add_relative_pose_goals();
+    auto pose_goal_position = pose_goal->mutable_position();
+    pose_goal_position->set_x(1);
+    pose_goal_position->set_y(1);
+    pose_goal_position->set_z(2);
+    pose_goal->set_yaw(0);
+    uav_vision_system_config->add_relative_pose_goals();
+
     auto arm_position_tolerance =
         uav_arm_system_config->mutable_position_controller_config()
             ->mutable_goal_position_tolerance();
@@ -64,8 +88,8 @@ public:
     tracker.reset(new SimpleTracker(drone_hardware, camera_transform));
     uav_arm_system.reset(
         new UAVArmSystem(*tracker, drone_hardware, arm, config));
-    logic_state_machine.reset(
-        new PickPlaceStateMachine(boost::ref(*uav_arm_system)));
+    logic_state_machine.reset(new PickPlaceStateMachine(
+        boost::ref(*uav_arm_system), boost::cref(state_machine_config)));
     logic_state_machine->start();
     // Move to landed state
     logic_state_machine->process_event(InternalTransitionEvent());
@@ -81,6 +105,7 @@ protected:
   QuadSimulator drone_hardware;
   ArmSimulator arm;
   UAVSystemConfig config;
+  BaseStateMachineConfig state_machine_config;
   std::unique_ptr<SimpleTracker> tracker;
   std::unique_ptr<UAVArmSystem> uav_arm_system;
   std::unique_ptr<PickPlaceStateMachine> logic_state_machine;
@@ -125,11 +150,6 @@ TEST_F(PickPlaceStateMachineTests, HoveringandLanding) {
 /// \brief Test Pick Place
 // Try Pick
 TEST_F(PickPlaceStateMachineTests, PickPlace) {
-  // Timeout for running controller
-  int time_out = 5000;  // Milliseconds
-  int time_period = 20; // Milliseconds
-  int max_count = time_out / time_period;
-  // First takeoff
   GoToHoverFromLanded();
   // Set goal for simple tracker
   Position roi_goal(2, 0, 0.5);
@@ -137,30 +157,172 @@ TEST_F(PickPlaceStateMachineTests, PickPlace) {
   // Initialize event to vse::TrackROI
   logic_state_machine->process_event(pe::Pick());
   // Check we are in PrePick state
-  ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
-  // Check controllers are active
-  ASSERT_EQ(uav_arm_system->getStatus<VisualServoingControllerDroneConnector>(),
-            ControllerStatus::Active);
+  ASSERT_STREQ(pstate(*logic_state_machine), "RelativePoseVisualServoing");
+  // Check UAV controller is active
+  ASSERT_EQ(
+      uav_arm_system
+          ->getStatus<RelativePoseVisualServoingControllerDroneConnector>(),
+      ControllerStatus::Active);
   ASSERT_EQ(uav_arm_system->getStatus<VisualServoingControllerArmConnector>(),
-            ControllerStatus::Active);
+            ControllerStatus::NotEngaged);
   // Keep running the controller until its completed or timeout
-  int temp_count = 0;
-  while (uav_arm_system->getStatus<VisualServoingControllerArmConnector>() ==
-             ControllerStatus::Active &&
-         ++temp_count < max_count) {
+  auto getUAVStatusRunControllers = [&]() {
+    uav_arm_system->runActiveController(HardwareType::UAV);
+    logic_state_machine->process_event(InternalTransitionEvent());
+    return uav_arm_system->getStatus<
+               RelativePoseVisualServoingControllerDroneConnector>() ==
+           ControllerStatus::Active;
+  };
+  ASSERT_FALSE(test_utils::waitUntilFalse()(getUAVStatusRunControllers,
+                                            std::chrono::seconds(5),
+                                            std::chrono::milliseconds(0)));
+  // Check we are in Pre-Pick
+  ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
+  ASSERT_EQ(logic_state_machine->lastProcessedEventIndex(), typeid(Completed));
+  auto getArmStatusRunControllers = [&]() {
     uav_arm_system->runActiveController(HardwareType::UAV);
     uav_arm_system->runActiveController(HardwareType::Arm);
     logic_state_machine->process_event(InternalTransitionEvent());
-    std::this_thread::sleep_for(std::chrono::milliseconds(time_period));
-  }
-  // Make sure controllers are aborted
-  ASSERT_EQ(uav_arm_system->getActiveControllerStatus(HardwareType::Arm),
-            ControllerStatus::NotEngaged);
-  ASSERT_EQ(uav_arm_system->getActiveControllerStatus(HardwareType::UAV),
-            ControllerStatus::NotEngaged);
-  // Check we are back in Hovering state
+    return uav_arm_system->getStatus<VisualServoingControllerArmConnector>() ==
+           ControllerStatus::Active;
+  };
+  // Run controllers again
+  ASSERT_FALSE(test_utils::waitUntilFalse()(getArmStatusRunControllers,
+                                            std::chrono::seconds(5)));
+  // Check we are in Pick
+  ASSERT_STREQ(pstate(*logic_state_machine), "PickState");
+  ASSERT_EQ(logic_state_machine->lastProcessedEventIndex(), typeid(Completed));
+}
+
+TEST_F(PickPlaceStateMachineTests, Pick) {
+  GoToHoverFromLanded();
+  // Set goal for simple tracker
+  Position roi_goal(2, 0, 0.5);
+  tracker->setTargetPositionGlobalFrame(roi_goal);
+  // Initialize event to vse::TrackROI
+  logic_state_machine->process_event(pe::Pick());
+  // Check we are in PrePick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "RelativePoseVisualServoing");
+  logic_state_machine->process_event(Completed());
+  // Check we are in pre-pick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
+  logic_state_machine->process_event(Completed());
+  // Check we are in pick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "PickState");
+
+  arm.setGripperStatus(true);
+  auto grip = [&]() {
+    logic_state_machine->process_event(InternalTransitionEvent());
+    return pstate(*logic_state_machine) == std::string("PickState");
+  };
+  ASSERT_FALSE(test_utils::waitUntilFalse()(grip, std::chrono::seconds(5),
+                                            std::chrono::milliseconds(20)));
+  ASSERT_EQ(logic_state_machine->lastProcessedEventIndex(), typeid(Completed));
+  // Check we are in hovering state
   ASSERT_STREQ(pstate(*logic_state_machine), "Hovering");
 }
+
+TEST_F(PickPlaceStateMachineTests, PickTimeout) {
+  GoToHoverFromLanded();
+  // Set goal for simple tracker
+  Position roi_goal(2, 0, 0.5);
+  tracker->setTargetPositionGlobalFrame(roi_goal);
+  // Initialize event to vse::TrackROI
+  logic_state_machine->process_event(pe::Pick());
+  // Check we are in PrePick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "RelativePoseVisualServoing");
+  logic_state_machine->process_event(Completed());
+  // Check we are in pre-pick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
+  logic_state_machine->process_event(Completed());
+  // Check we are in pick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "PickState");
+
+  arm.setGripperStatus(false);
+
+  auto grip = [&]() {
+    logic_state_machine->process_event(InternalTransitionEvent());
+    return pstate(*logic_state_machine) == std::string("PickState");
+  };
+  ASSERT_FALSE(test_utils::waitUntilFalse()(grip, std::chrono::seconds(5),
+                                            std::chrono::milliseconds(20)));
+  // Check we are in hovering state
+  // \todo Matt This will not transition to hovering in the future, it will go
+  // to ReachingGoal
+  ASSERT_STREQ(pstate(*logic_state_machine), "Hovering");
+  ASSERT_EQ(logic_state_machine->lastProcessedEventIndex(), typeid(Reset));
+}
+
+TEST_F(PickPlaceStateMachineTests, PickWaitForGrip) {
+  GoToHoverFromLanded();
+  // Set goal for simple tracker
+  Position roi_goal(2, 0, 0.5);
+  tracker->setTargetPositionGlobalFrame(roi_goal);
+  // Initialize event to vse::TrackROI
+  logic_state_machine->process_event(pe::Pick());
+  // Check we are in PrePick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "RelativePoseVisualServoing");
+  logic_state_machine->process_event(Completed());
+  // Check we are in pre-pick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
+  logic_state_machine->process_event(Completed());
+  // Check we are in pick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "PickState");
+
+  // Initially not gripping
+  arm.setGripperStatus(false);
+  logic_state_machine->process_event(InternalTransitionEvent());
+  this_thread::sleep_for(std::chrono::milliseconds(900));
+  // Now gripping
+  arm.setGripperStatus(true);
+
+  auto grip = [&]() {
+    logic_state_machine->process_event(InternalTransitionEvent());
+    return pstate(*logic_state_machine) == std::string("PickState");
+  };
+  ASSERT_FALSE(test_utils::waitUntilFalse()(grip, std::chrono::seconds(5),
+                                            std::chrono::milliseconds(0)));
+  ASSERT_EQ(logic_state_machine->lastProcessedEventIndex(), typeid(Completed));
+  // Check we are in hovering state
+  ASSERT_STREQ(pstate(*logic_state_machine), "Hovering");
+}
+
+TEST_F(PickPlaceStateMachineTests, PickGripTooLate) {
+  GoToHoverFromLanded();
+  // Set goal for simple tracker
+  Position roi_goal(2, 0, 0.5);
+  tracker->setTargetPositionGlobalFrame(roi_goal);
+  // Initialize event to vse::TrackROI
+  logic_state_machine->process_event(pe::Pick());
+  // Check we are in PrePick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "RelativePoseVisualServoing");
+  logic_state_machine->process_event(Completed());
+  // Check we are in pre-pick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
+  logic_state_machine->process_event(Completed());
+  // Check we are in pick state
+  ASSERT_STREQ(pstate(*logic_state_machine), "PickState");
+
+  // Initially not gripping
+  arm.setGripperStatus(false);
+  logic_state_machine->process_event(InternalTransitionEvent());
+  this_thread::sleep_for(std::chrono::milliseconds(1100));
+  // Now gripping, but not enough time to complete grip before timeout
+  arm.setGripperStatus(true);
+
+  auto grip = [&]() {
+    logic_state_machine->process_event(InternalTransitionEvent());
+    return pstate(*logic_state_machine) == std::string("PickState");
+  };
+  ASSERT_FALSE(test_utils::waitUntilFalse()(grip, std::chrono::seconds(5),
+                                            std::chrono::milliseconds(0)));
+  ASSERT_EQ(logic_state_machine->lastProcessedEventIndex(), typeid(Reset));
+  // Check we are in hovering state
+  // \todo Matt This will not transition to hovering in the future, it will go
+  // to ReachingGoal
+  ASSERT_STREQ(pstate(*logic_state_machine), "Hovering");
+}
+
 // Abort due to arm not enabled
 TEST_F(PickPlaceStateMachineTests, PrePickPlaceArmAbort) {
   // First takeoff
@@ -170,6 +332,7 @@ TEST_F(PickPlaceStateMachineTests, PrePickPlaceArmAbort) {
   tracker->setTargetPositionGlobalFrame(roi_goal);
   // Initialize event to vse::TrackROI
   logic_state_machine->process_event(pe::Pick());
+  logic_state_machine->process_event(Completed());
   // Check we are in pre-pick state
   ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
   // Power off arm
@@ -188,6 +351,7 @@ TEST_F(PickPlaceStateMachineTests, PickPlaceArmAbort) {
   tracker->setTargetPositionGlobalFrame(roi_goal);
   // Initialize event to vse::TrackROI
   logic_state_machine->process_event(pe::Pick());
+  logic_state_machine->process_event(Completed());
   // Check we are in pre-pick state
   ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
   // Go to pick
@@ -209,6 +373,7 @@ TEST_F(PickPlaceStateMachineTests, PrePickPlaceInvalidTrackingAbort) {
   tracker->setTargetPositionGlobalFrame(roi_goal);
   // Initialize event to vse::TrackROI
   logic_state_machine->process_event(pe::Pick());
+  logic_state_machine->process_event(Completed());
   // Check we are in pre-pick state
   ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
   // Set tracker to invalid
@@ -231,6 +396,7 @@ TEST_F(PickPlaceStateMachineTests, PickPlaceInvalidTrackingAbort) {
   tracker->setTargetPositionGlobalFrame(roi_goal);
   // Initialize event to vse::TrackROI
   logic_state_machine->process_event(pe::Pick());
+  logic_state_machine->process_event(Completed());
   // Check we are in pre-pick state
   ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
   // Go to pick state
@@ -257,6 +423,7 @@ TEST_F(PickPlaceStateMachineTests, PrePickPlaceManualControlAbort) {
   tracker->setTargetPositionGlobalFrame(roi_goal);
   // Initialize event to vse::TrackROI
   logic_state_machine->process_event(pe::Pick());
+  logic_state_machine->process_event(Completed());
   // Check we are in pre-pick state
   ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
   // Disable SDK
@@ -282,6 +449,7 @@ TEST_F(PickPlaceStateMachineTests, PickPlaceManualControlAbort) {
   tracker->setTargetPositionGlobalFrame(roi_goal);
   // Initialize event to vse::TrackROI
   logic_state_machine->process_event(pe::Pick());
+  logic_state_machine->process_event(Completed());
   // Check we are in pre-pick state
   ASSERT_STREQ(pstate(*logic_state_machine), "PrePickState");
   // Go to pick state
