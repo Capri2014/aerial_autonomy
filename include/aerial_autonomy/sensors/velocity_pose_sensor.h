@@ -4,7 +4,7 @@
 #include "aerial_autonomy/types/position_yaw.h"
 #include "aerial_autonomy/types/velocity_yaw.h"
 #include "velocity_pose_sensor_config.pb.h"
-#include <aerial_autonomy/common/math.h>
+#include <aerial_autonomy/common/conversions.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <parsernode/parser.h>
 #include <ros/ros.h>
@@ -31,7 +31,7 @@ public:
         drone_hardware_(drone_hardware), nh_(nh) {
     pose_sub_ =
         nh_.subscribe("pose", 1, &VelocityPoseSensor::poseCallback, this);
-    sensor_tf_ = math::getTransformFromVector(config_.sensor_transform());
+    sensor_tf_ = conversions::protoTransformToTf(config_.sensor_transform());
     parsernode::common::quaddata data;
     drone_hardware_.getquaddata(data);
 

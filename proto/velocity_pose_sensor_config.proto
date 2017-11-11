@@ -1,10 +1,11 @@
 syntax = "proto2";
+import "transform.proto";
 
 message VelocityPoseSensorConfig {
   /**
   * @brief transform of sensor in robot's frame
   */
-  repeated double sensor_transform = 2;
+  optional config.Transform sensor_transform = 2;
   /**
   * @brief maximum allowed divergence from gps data
   * along each axis in meters

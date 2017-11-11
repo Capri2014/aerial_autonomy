@@ -13,9 +13,6 @@ class VelocityPoseSensorTests : public ::testing::Test {
 public:
   VelocityPoseSensorTests() {
     pose_pub = nh.advertise<geometry_msgs::PoseStamped>("pose", 1);
-    for (int i = 0; i < 6; ++i) {
-      config.add_sensor_transform(0.0);
-    }
   }
 
   ros::NodeHandle nh;
@@ -194,16 +191,12 @@ TEST_F(VelocityPoseSensorTests, MinTimestep) {
 
 TEST_F(VelocityPoseSensorTests, SensorTF) {
   VelocityPoseSensorConfig new_config;
+  new_config.mutable_sensor_transform()->mutable_position()->set_x(0.1);
+  new_config.mutable_sensor_transform()->mutable_position()->set_z(0.1);
+  new_config.mutable_sensor_transform()->mutable_rotation()->set_p(-1.57);
 
-  new_config.add_sensor_transform(0.1);
-  new_config.add_sensor_transform(0.0);
-  new_config.add_sensor_transform(0.1);
-  new_config.add_sensor_transform(-1.57);
-  new_config.add_sensor_transform(0.0);
-  new_config.add_sensor_transform(0.0);
-
-  tf::Transform sensor_tf(tf::createQuaternionFromRPY(-1.57, 0.0, 0.0),
-                          tf::Vector3(0.1, 0, 0.1));
+  tf::Transform sensor_tf =
+      conversions::protoTransformToTf(new_config.sensor_transform());
 
   VelocityPoseSensor sensor(drone_hardware, nh, new_config);
   ros::Time t0 = ros::Time::now();
